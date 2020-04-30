@@ -1,0 +1,698 @@
+---
+title: "BATSSSSSSS"
+author: "Tad Dallas"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 10
+    highlight: tango
+    theme: journal
+    toc: yes
+---
+
+
+
+
+
+```{r eval=TRUE, echo=FALSE, comment="", message=FALSE}
+
+dat <- read.csv('BatCoV-assoc.csv', stringsAsFactors=FALSE)
+host <- read.csv('Han-BatTraits.csv',stringsAsFactors=FALSE)
+
+```
+
+
+
+
+# Load packages
+
+```{r}
+library(Amelia)
+library(fields)
+library(ROCR)
+library(corpcor)
+library(np)
+
+```
+
+
+
+# Make some colors 
+```{r}
+ose1 <- rgb(85,108,17, m=255)
+ose2 <- rgb(160,108,17, m=255)
+ose3 <- rgb(114,132,56, m=255)
+ose4 <- rgb(137,152,87, m=255)
+```
+
+
+
+
+
+```{r, eval=TRUE, echo=FALSE}
+
+#' Plug and Play algorithm
+#' Applies the plug and play algorithm to data on environmental covariates at presence and background using multivariate Gaussian distribution for f and f1
+#'
+#'  @param p covariate data at presence/occurrence points
+#'  @param bgrd covariate data at background points
+#'  @param method either 'classical' (default), 'robust', or 'regularized'
+#'  
+#'  @returns A list contain the means and covariances
+#'  
+
+pp.gauss <- function(p, bgrd, method='regularized', vbose = FALSE){
+  mean.p <- colMeans(p)         # estimated mean of presence points
+  mean.bgrd <- colMeans(bgrd)   # estimated mean of background points
+  sigma.p <- stats::cov(p)             # estimated covariance of presence points
+  sigma.bgrd <- stats::cov(bgrd)       # estimated covariance of background points
+
+  if(method=='robust'){
+    require(robust)
+    p.est <- covRob(p)
+    mean.p <- p.est$center        # robust estimated mean
+    sigma.p <- p.est$cov          # robust estimated covariance of presence points
+    bgrd.est <- covRob(bgrd)
+    mean.bgrd <- bgrd.est$center  # robust estimated mean
+    sigma.bgrd <- bgrd.est$cov    # robust estimated covariance of background points
+  }
+  if(method=='regularized'){
+    require(corpcor)
+    # robust estimated covariance of presence points
+    p.est <- as.numeric(cov.shrink(p, verbose= vbose))  
+    sigma.p <- matrix(as.numeric(p.est), nrow=sqrt(length(p.est)))  
+    # robust estimated covariance of background points
+    bgrd.est <- as.numeric(cov.shrink(bgrd, verbose = vbose))    
+    sigma.bgrd <- matrix(as.numeric(bgrd.est), nrow=sqrt(length(bgrd.est))) # reformat
+  }
+  return(model=list(mean.p=mean.p, sigma.p=sigma.p, mean.bgrd=mean.bgrd, sigma.bgrd=sigma.bgrd))
+}
+
+
+
+#'  Takes a learned gaussian-plug-and-play and applies to a new point
+#'  
+#'  @param model a list object from pp.gauss
+#'  @param x  a vector of points to classify
+#'
+#'  @returns A vector of relative suitabilities
+
+predict.pp.gauss <- function(model, x){
+  require(mvtnorm)
+  f1 <- dmvnorm(x, mean=model$mean.p, sigma=model$sigma.p, log=TRUE)
+  f0 <- dmvnorm(x, mean=model$mean.bgrd, sigma=model$sigma.bgrd, log=TRUE)
+  return(S=exp(f1-f0))
+}
+
+
+
+
+#' Applies the plug and play algorithm to data on environmental covariates at presence and background using multivariate Gaussian distribution for f and f1
+#'
+#'  @param p covariate data at presence/occurrence points
+#'  @param bgrd covariate data at background points
+#'
+#'  @returns model a list object containing f1 and f0 
+
+pp.kde <- function(p, bgrd){
+  require(np)
+  f1 <- npudens(p, bwmethod='normal-reference')
+  f0 <- npudens(bgrd, bwmethod='normal-reference')
+  return(model=list(f1=f1,f0=f0))
+}
+
+
+
+
+#'  Takes a learned kde-plug-and-play and applies to a new point
+#'  
+#'  @param model a list object from pp.gauss
+#'  @param x  a vector of points to classify
+#'
+#'  @returns A vector of relative suitabilities
+
+predict.pp.kde <- function(model, x){
+  require(np)
+  f1 <- fitted(npudens(bws=model$f1$bws, edat=data.frame(x), bwmethod='normal-reference'))
+  f0 <- fitted(npudens(bws=model$f0$bws, edat=data.frame(x), bwmethod='normal-reference'))
+  return(S=f1/f0)
+}
+
+```
+
+
+# The code below is used to calculate the number of estimated missing links from host-parasite networks
+
+
+```{r eval=TRUE, echo=F}
+
+#' Function to compute frequnecy of frequencies table from a list of records
+#' Input: x (a list of unique records)
+#' 
+#'
+#' @returns frequency of frequencies table 
+
+FoF <- function(x){
+  x.0 <- table(table(x))
+  out <- cbind(as.numeric(names(x.0)),as.vector(x.0))
+  out
+}
+
+
+
+#' Function to estimate and summarize missing classes
+#' @param fof (a frequency-of-frequencies table)
+#' 
+#' @returns list object containing observed, estimated, and missing links
+
+summarize <- function(fof){
+  observed <- sum(fof[,2])
+  ace <- ChaoLee1992(fof, t = 10, method = "all", conf = 0.95)
+  number.missing <- ace$Nhat - observed
+  fraction.observed <- observed/ace$Nhat[2:1]
+  out <- list(observed=observed, estimated=ace$Nhat[2:1], number.mising=number.missing, fraction.observed=fraction.observed)
+  out
+}
+
+```
+
+
+
+
+
+
+---
+
+
+
+# Host-virus associations
+
+
+```{r eval=TRUE, echo=TRUE}
+
+#' imputes missing data.
+#'
+#' @param listobject contains interaction matrix (intMat), host traits, parasite traits, and a points object that gets handed to pp.gauss
+#' 
+#' @returns the same listobject, now with missing host and parasite trait data imputed and pointsobject updated.
+
+getImpute <- function(listobject, m=10, rem=FALSE){
+	require(Amelia)
+	require(vegan)
+
+  htriz <- listobject$Hosts
+	ptriz <- listobject$Parasites
+
+  #remove columns with less than 75% data coverage
+  no  <- which(colSums(is.na(htriz))/nrow(htriz) > 0.75)
+	nop <- which(colSums(is.na(ptriz))/nrow(ptriz) > 0.75)
+  if(length(no) > 0){
+    htriz <- htriz[,-no]
+  }
+  if(length(nop) > 0){
+    ptriz <- ptriz[,-nop]
+  }
+
+
+#remove columns with correlation coeff > 0.9
+#  no2 <- which(cor(htriz, use='complete.obs')[,1] > 0.9)
+#  if(length(no2)>0){
+#    no2 <- no2[-1];htriz = htriz[,-no2]
+#  }
+
+  #remove rows without any data
+	#hosts
+  inds <- which(is.na(colSums(htriz)))
+  if(rem==TRUE){
+    cut=rep(0,nrow(htriz))
+    for(i in seq_len(nrow(htriz))){
+      if(all(is.na(htriz[i,]))){cut[i]=1}
+    }
+    htriz <- htriz[-which(cut==1), ]
+  }
+	#parasites
+  indsP <- which(is.na(colSums(ptriz)))
+  if(rem==TRUE){
+    cut=rep(0,nrow(ptriz))
+    for(i in seq_len(nrow(ptriz))){
+      if(all(is.na(ptriz[i,]))){cut[i]=1}
+    }
+    ptriz <- ptriz[-which(cut==1), ]
+  }
+
+ #impute host traits
+ if(any(colSums(htriz,na.rm=TRUE)>1)){
+    helper <- which(colSums(htriz,na.rm=TRUE)>1)[1]
+    htriz2 <- amelia(x = htriz[, unique(c(helper,inds))], m=m, p2s=0)$imputations[[m]]
+    notInds <- seq(1,ncol(htriz),by=1)[-c(helper,inds)]
+    htriz3 <- cbind(htriz2, htriz[,notInds])
+  }else{
+    htriz2 <- amelia(x = htriz[, c(inds)], m=m, p2s=0)$imputations[[m]]
+    notInds <- seq(1,ncol(htriz),by=1)[-c(inds)]
+    htriz3 <- cbind(htriz2, htriz[,notInds])
+  }
+
+ # impute parasite traits
+ if(any(colSums(ptriz,na.rm=TRUE)>1)){
+    helper <- which(colSums(ptriz,na.rm=TRUE)>1)[1]
+    ptriz2 <- amelia(x = ptriz[, unique(c(helper,indsP))], m=m, p2s=0)$imputations[[m]]
+    notInds <- seq(1,ncol(ptriz),by=1)[-c(helper,indsP)]
+    ptriz3 <- cbind(ptriz2, ptriz[,notInds])
+  }else{
+    ptriz2 <- amelia(x = ptriz[, c(indsP)], m=m, p2s=0)$imputations[[m]]
+    notInds <- seq(1,ncol(ptriz),by=1)[-c(indsP)]
+    ptriz3 <- cbind(ptriz2, ptriz[ ,notInds])
+  }
+
+  #remake the points object
+  intMat <- listobject$intMat
+  pos <- which(intMat == 1, arr.ind=TRUE)
+  neg <- which(intMat == 0, arr.ind=TRUE)
+  ret <- rbind(pos,neg) 
+  ret <- cbind(ret, c(rep(1, nrow(pos)), rep(0,nrow(neg)))) 
+  colnames(ret) <- c('parasite', 'host', 'presence')
+
+  pt <- ptriz3[ret[,2],]
+  ht <- htriz3[ret[,1],]
+	ht <- ht[,-1]
+
+ 	ptobj <- data.frame(ret, ht, pt, stringsAsFactors=TRUE)
+	return(list(intMat=intMat, Hosts=htriz3, 
+		Parasites=ptriz, pointsObject=ptobj))
+}
+
+
+```
+
+
+
+```{r eval=TRUE, echo=TRUE}
+
+#' Train pp.gauss model on data
+#'
+#' @param pointsobject input to pp.gauss function
+#' 
+#' @returns list object of host and parasite information, model predictions, and AUC value
+
+getReal <- function(pointsobject, cv=TRUE, folds=5){
+  require(ROCR)
+  # all the data divided into presence (p) and background (bg)
+  p <- pointsobject[(pointsobject[,'presence'] == 1), 4:ncol(pointsobject)]
+  bg <- pointsobject[,4:ncol(pointsobject)]
+  if(cv==TRUE){
+		# Take a random sample and exclude it
+		ints <- sample(1:nrow(pointsobject), nrow(pointsobject)/folds)
+		red <- pointsobject[-ints,]
+		p.red <- red[(red[,'presence'] == 1), 4:ncol(pointsobject)]
+		bg.red <- red[, 4:ncol(pointsobject)]
+		# Train the model on a portion of the data
+		cvmodel <- pp.gauss(p=p.red, bgrd=bg.red, vbose=FALSE)
+		#... and predict on the holdout set
+		red.preds <- predict.pp.gauss(cvmodel, x=bg[ints,])
+		ret <- data.frame(presence=pointsobject[ints,'presence'], suitability=red.preds)
+		hosts <- pointsobject[ints,'parasite']; parasites=pointsobject[ints,'host']
+  }
+
+  if(cv==FALSE){
+    fullmodel <- pp.gauss(p=p, bgrd=bg, vbose=FALSE)
+    redpreds <- predict.pp.gauss(fullmodel, x=bg)
+    ret <- data.frame(presence=pointsobject[,'presence'], suitability=redpreds)
+    hosts <- pointsobject$parasite; parasites=pointsobject$host
+  }
+  #auc calculation
+  pred <- prediction(predictions=ret[,2], labels=ret[,1])
+  acc <- as.numeric(performance(pred, 'auc')@y.values)
+  return(list(hostInds=hosts, parasiteInds=parasites, predictions=ret, auc=acc))
+}
+
+```
+
+
+
+
+
+
+```{r eval=TRUE, echo=F, message=FALSE, warning=FALSE}
+
+makePoints <- function(intmat, HostTraits, ParasiteTraits){
+  ret <- matrix(0,ncol=3, nrow=(nrow(intmat)*ncol(intmat))) 
+  colnames(ret) <- c('row', 'column', 'presence')
+  negInts <- which(intmat == 0, arr.ind=TRUE)
+  posInts <- which(intmat > 0, arr.ind=TRUE)
+  ret[,1:2] <- rbind(negInts, posInts)
+  ret[,3] <- c(rep(0, nrow(negInts)), rep(1, nrow(posInts)))
+  ret2 <- cbind(ret,HostTraits[(ret[,1]),], ParasiteTraits[(ret[,2]),])
+  return(list(intMat=intmat, Hosts=HostTraits, Parasites=ParasiteTraits, pointsObject=ret2))
+}
+
+
+```
+
+
+
+
+
+
+```{r eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+
+## interaction matrix
+intMatFull <- table(
+	sort(dat$host_species),
+	sort(dat$virus_genus)
+)
+
+expandCol <- function(dat, colName=NULL){
+	namez <- na.omit(unique(dat))
+	ret <- sapply(namez, function(x){as.integer(grepl(x, dat))}) 
+	colnames(ret) <- paste(colName, '.', namez, sep='')
+	return(as.data.frame(ret))
+}
+
+
+
+### created features
+numParasites <- rowSums(intMatFull > 0)
+numHosts <- colSums(intMatFull > 0)
+
+
+host$speciesName <- gsub('_', ' ', host$Pan)
+
+# so there are some hosts whose interactions we know and traits we do not. Cool. 
+h <- data.frame(speciesName=rownames(intMatFull))
+h <- left_join(h, host, by='speciesName')
+
+
+
+
+### forming data.frame objects
+host2 <- data.frame(
+	expandCol(h$MSW05_Order, 'hOrder'), 
+	expandCol(h$MSW05_Genus, 'hGenus'), 
+	expandCol(h$ForStrat.Value, 'hForStratValue'),
+	expandCol(h$IUCN , 'hIUCN '),  
+	h[,c(6:60, 62:67)], 
+	numParasites
+)
+
+host2$X12.2_Terrestriality <- NULL
+host2$Diet.Vunk<- NULL
+host2$Diet.Scav<- NULL
+host2$Activity.Nocturnal<- NULL 
+
+
+virus <- dat %>%
+	group_by(virus_genus) %>%
+	summarise(nSubs=length(unique(virus_subgenus)))
+
+virus2 <- data.frame(nSubs=virus$nSubs, dummy=1)
+
+
+## Points object
+hvDat <- makePoints(intMatFull, host2, virus2)
+
+```
+
+
+
+
+
+
+
+
+```{r eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+
+#imputed!
+hvDati <- getImpute(hvDat, m=10)
+hvOut1 <- getReal(hvDati[[4]], cv=FALSE)
+
+```
+
+
+
+
+
+Big model
+
+```{r}
+
+linksDF <- data.frame(host=rownames(hvDati[[1]])[hvOut1[[1]]],
+	virus = colnames(hvDati[[1]])[hvOut1[[2]]], 
+	presence = hvOut1[[3]]$presence,
+	suitability = hvOut1[[3]]$suitability)
+
+linksDF <- linksDF[order(linksDF$suitability),]
+
+
+
+
+
+
+
+# Betacoronavirus 
+
+linksDF2 <- left_join(linksDF, virus[,c('vVirusNameCorrected', 'vFamily')],
+	by=c('virus'='vVirusNameCorrected'))
+
+linksCov <- filter(linksDF2, vFamily=='Coronaviridae')
+linksCov2 <- filter(linksCov, presence==0)
+linksCov3 <- linksCov2 %>% 
+	group_by(host) %>%
+	summarise(meanSuit=mean(suitability))
+
+linksCov3 <-linksCov3[order(linksCov3$meanSuit),]
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+Small model
+
+```{r}
+# code below not edited. Models need to be trained first.
+linksDFC <- data.frame(host=rownames(hvDati[[1]])[hvOut1[[1]]],
+	virus = colnames(hvDati[[1]])[hvOut1[[2]]], 
+	presence = hvOut1[[3]]$presence,
+	suitability = hvOut1[[3]]$suitability)
+
+linksDF <- linksDF[order(linksDF$suitability),]
+
+linksDF2 <- left_join(linksDF, virus[,c('vVirusNameCorrected', 'vFamily')],
+	by=c('virus'='vVirusNameCorrected'))
+
+linksCov <- filter(linksDF2, vFamily=='Coronaviridae')
+linksCov2 <- filter(linksCov, presence==0)
+linksCov3 <- linksCov2 %>% 
+	group_by(host) %>%
+	summarise(meanSuit=mean(suitability))
+
+sort(table(linksCov2$host))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+#plug and play cross validated
+auc <- vector()
+for(i in 1:100){
+  set.seed(i)
+  auc[i] <- getReal(hvDati[[4]], cv=TRUE, folds=5)$auc
+}
+
+```
+
+
+## Variable importance
+
+```{r eval=FALSE, echo=FALSE}
+
+
+getImportance <- function(column, pointsobject, n=100){
+	require(ROCR)
+  #all the data divided into presence (p) and background (bg)
+  p <- pointsobject[(pointsobject[,'presence'] == 1), 4:ncol(pointsobject)]
+  bg <- pointsobject[,4:ncol(pointsobject)]
+
+	shufTrain <- function(bg, ind=1){
+    accChange <- vector()
+#   bg <- pointsobject[,4:ncol(pointsobject)]
+    #shuffle interactions of variable i
+    for(z in seq_len(n)){
+      bg[,ind] <- bg[sample(1:nrow(vars),nrow(vars)),ind]
+      fullmodel <- pp.gauss(p=bg[(pointsobject$presence == 1), ], 
+				bgrd=bg, vbose=FALSE)
+      redpreds <- predict.pp.gauss(fullmodel, x=bg)
+      ret <- data.frame(presence=pointsobject[,'presence'], 
+				suitability=redpreds)
+      #auc calculation 
+      pred <- prediction(predictions=ret[,2], labels=ret[,1])
+      accChange[z] <- as.numeric(performance(pred, 'auc')@y.values)
+		}
+		return(c(mn=mean(accChange,na.rm=TRUE), sd=sd(accChange, na.rm=TRUE)))
+	}
+
+	varImp <- vector()
+	tmp <- try(shufTrain(bg, ind=column))
+	if(inherits(tmp, 'try-error')){
+		varImp <- c(NA,NA)
+	}else{
+		varImp <- unlist(tmp)
+  }
+  #positive values indicate that variable permutation improved model performance
+  #negative values indicate that variable permutation decreased model performance
+  return(varImp)
+}
+
+```
+
+
+
+
+
+
+### Obtain overall variable importance values
+
+```{r}
+
+library(doParallel)  
+cl <- makeCluster(12, type="SOCK") 
+registerDoParallel(cl)  
+varImportance <- parLapply(cl, 1:175, getImportance, hvDati[[4]], n=100)
+stopCluster(cl)
+
+
+
+varImport <- do.call(rbind, varImportance)
+varImport <- as.data.frame(varImport)
+varImport$variable <- colnames(hvDati[[4]])[4:ncol(hvDati[[4]])]
+
+```
+
+
+
+
+
+
+
+```{r}
+
+plotVarImport <- function(vdat, rows=nrow(vdat), 
+	legX=0.01, legY=60,
+	rowNames=NULL, colz=NULL, reduced=FALSE, scale=TRUE){
+	vdat <- vdat[order(vdat$mn, decreasing=TRUE),]
+	if(scale){
+		vdat$mn <- vdat$mn - hvOut1$auc
+		vdat$mn <- abs(vdat$mn - max(vdat$mn))
+	}
+	if(is.null(colz)){
+		colorz <- c('purple', '#0099ff', '#14cad4', '#005B99', '#99005b', '#990000', '#ff0000', '#FF9999', '#FFCC99')
+		colz <- colorz[as.numeric(as.factor(vdat$broadColorz))]
+	}	
+	if(reduced==FALSE){
+		par(mar=c(4,0.5,0.5,0.5))
+		plot(x=vdat$mn, y=1:nrow(vdat), pch=16, col=colz, las=1, yaxt='n', ylab='',
+			xlim=c(min(vdat$mn-vdat$sd, na.rm=TRUE),max(vdat$mn+vdat$sd, na.rm=TRUE)),
+			xlab='change in AUC')
+		segments(x0=vdat$mn-vdat$sd, x1=vdat$mn+vdat$sd, y0=1:nrow(vdat), col=colz)
+		abline(v=hvOut1$auc, col=grey(0.5,0.9), lwd=2)
+		points(x=vdat$mn, y=1:nrow(vdat), col=colz, pch=16, cex=1.1)
+
+		points(x=vdat$mn[which(vdat$mn-vdat$sd > hvOut1$auc)], 
+			y=which(vdat$mn-vdat$sd > hvOut1$auc), 
+			col='red', bg=colz[which(vdat$mn-vdat$sd > hvOut1$auc)], pch=21)
+		leg <- data.frame(cat=unique(vdat$broadColorz), 
+			ind=unique(as.numeric(as.factor(vdat$broadColorz))), 
+			col=substr(unique(colz), start=1, stop=7))
+		leg$col <- as.character(leg$col)
+		leg$cat <- as.character(leg$cat)
+		leg <- leg[order(leg$ind),]
+		legend(legX, legY, col=leg$col, leg$cat, pch=16, bty='n', pt.cex=1.5)
+	}
+	if(reduced){
+		vdat2 <- vdat %>% group_by(broadColorz) %>% summarise(mnn=mean(mn), sdd=mean(sd))
+		vdat2 <- vdat2[order(vdat2$mnn),]
+		par(mar=c(4,9,0.5,0.5))
+		plot(x=vdat2$mnn, y=1:nrow(vdat2), pch=16, col=colorz, las=1, yaxt='n', ylab='',
+			xlim=c(min(vdat2$mnn-vdat2$sdd, na.rm=TRUE),max(vdat2$mnn+vdat2$sdd, na.rm=TRUE)),
+			xlab='change in AUC')
+		axis(2, at=1:nrow(vdat2), labels=unique(vdat2$broadColorz), las=1)
+		segments(x0=vdat2$mnn-vdat2$sdd, x1=vdat2$mnn+vdat2$sdd, y0=1:nrow(vdat2), col=colorz)
+		abline(v=hvOut1$auc, col=grey(0.5,0.9), lwd=2)
+		points(x=vdat2$mnn, y=1:nrow(vdat2), col=colorz, pch=16, cex=1.1)
+	}
+}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+### Identifying likely missing links
+
+```{r}
+
+topLinks <- linksDF[which(linksDF$suitability > 1e100 & linksDF$presence == 0),]
+
+missedLinks <- linksDF[which(linksDF$suitability == 0 & linksDF$presence == 1),]
+
+```
+
+
+
+
