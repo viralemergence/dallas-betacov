@@ -470,8 +470,8 @@ linksDF2 <- left_join(linksDF, virus[,c('vVirusNameCorrected', 'vFamily')],
 linksCov <- filter(linksDF2, vFamily=='Coronaviridae')
 linksCov2 <- filter(linksCov, presence==0)
 linksCov3 <- linksCov2 %>% 
-	group_by(host) %>%
-	summarise(meanSuit=mean(suitability))
+	dplyr::group_by(host) %>%
+	dplyr::summarise(meanSuit=mean(suitability))
 
 linksCov3 <-linksCov3[order(linksCov3$meanSuit),]
 
