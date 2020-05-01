@@ -467,8 +467,9 @@ linksDF <- data.frame(host=rownames(hvDati[[1]])[hvOut1[[1]]],
 	suitability = hvOut1[[3]]$suitability)
 
 linksDF <- linksDF[order(linksDF$suitability),]
+ret <- linksDF[which(linksDF$virus == 'Betacoronavirus'), c(1,4)]
 
-write.csv(linksDF, file='DallasPredictions.csv')
+write.csv(ret, file='DallasPredictions.csv')
 
 
 ```
@@ -563,13 +564,13 @@ formatPPobject <- function(intMat,
 getReal2 <- function(pointsobject, cv=FALSE, folds=5, newData=NULL){
   require(ROCR)
   # all the data divided into presence (p) and background (bg)
-  p <- pointsobject[(pointsobject[,'presence'] >= 1), 3:ncol(pointsobject)]
+  p <- pointsobject[(pointsobject[,'presence'] >= 1), 4:ncol(pointsobject)]
   bg <- pointsobject[,3:ncol(pointsobject)]
   if(cv==TRUE){
 		# Take a random sample and exclude it
 		ints <- sample(1:nrow(pointsobject), nrow(pointsobject)/folds)
 		red <- pointsobject[-ints,]
-		p.red <- red[(red[,'presence'] >= 1), 3:ncol(pointsobject)]
+		p.red <- red[(red[,'presence'] >= 1), 4:ncol(pointsobject)]
 		bg.red <- red[, 3:ncol(pointsobject)]
 		# Train the model on a portion of the data
 		cvmodel <- pp.gauss(p=p.red, bgrd=bg.red, vbose=FALSE)
@@ -582,7 +583,7 @@ getReal2 <- function(pointsobject, cv=FALSE, folds=5, newData=NULL){
   if(cv==FALSE){
     fullmodel <- pp.gauss(p=p, bgrd=bg, vbose=FALSE)
 		if(!is.null(newData)){
-			redpreds <- predict.pp.gauss(fullmodel, x=newData[,3:ncol(newData)])
+			redpreds <- predict.pp.gauss(fullmodel, x=newData[,4:ncol(newData)])
 		  ret <- data.frame(presence=newData[,'presence'], suitability=redpreds)
 		  hosts <- newData$host
 			parasites <- newData$pathogen
@@ -614,16 +615,20 @@ getReal2 <- function(pointsobject, cv=FALSE, folds=5, newData=NULL){
 
 
 
-Does not work.
+Works, but is likely garbage.
 
 ```{r}
 
 test <- formatPPobject(intMatFull)
-out <- getReal(test, cv=TRUE)
+out <- getReal(test, cv=FALSE)
 
 topLinks <- cbind(test, suitability=out$predictions[,'suitability'])
 topLinks <- topLinks[which(topLinks$presence == 0),]
 topLinks <- topLinks[order(topLinks$suitability),]
+
+retNoPredictors <- topLinks[which(topLinks$pathogen == 'Betacoronavirus'), c(1,2,7)]
+
+write.csv(retNoPredictors, file='DallasDumbPredictions.csv')
 
 ```
 
