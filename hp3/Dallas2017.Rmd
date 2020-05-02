@@ -366,9 +366,11 @@ makePoints <- function(intmat, HostTraits, ParasiteTraits){
 
 ```{r eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 
+dat2 <- left_join(dat, virus[,c(1,5)], by='vVirusNameCorrected')
+
 ## interaction matrix
-intMatFull <- table(sort(dat$hHostNameFinal), 
-	sort(dat$vVirusNameCorrected))
+intMatFull <- table(sort(dat2$hHostNameFinal), 
+	sort(dat2$vGenus))
 
 expandCol <- function(dat, colName=NULL){
 	namez <- na.omit(unique(dat))
@@ -381,7 +383,7 @@ expandCol <- function(dat, colName=NULL){
 
 ### created features
 numParasites <- rowSums(intMatFull > 0)
-numParasitesC <- rowSums(intMatCorona > 0)
+#numParasitesC <- rowSums(intMatCorona > 0)
 numHosts <- colSums(intMatFull > 0)
 
 ### forming data.frame objects
@@ -403,6 +405,25 @@ host2 <- data.frame(
 		numParasites=numParasites,
 		numParasitesC=numParasitesC
 	)
+
+
+virusG <- virus %>%
+	group_by(vGenus) %>%
+	summarise(species=length(unique(vVirusNameCorrected)), 
+		ReverseZoonoseFrac=mean(ReverseZoonoses,na.rm=TRUE),
+		IsHoSa=mean(IsHoSa,na.rm=TRUE), 
+		vGenomeAveLength=mean(vGenomeAveLength, na.rm=TRUE), 
+		sdvGenomeLength=sd(vGenomeAveLength, na.rm=TRUE), 
+		vWOKcites=mean(vWOKcites, na.rm=TRUE), 
+		vPubMedCites=mean(vPubMedCites, na.rm=TRUE), 
+		vCytoReplicTF=mean(vCytoReplicTF, na.rm=TRUE),  
+		vSegmentedTF=mean(vSegmentedTF,na.rm=TRUE), 
+		vVectorYN=sum(vVectorYNna=='Y', na.rm=TRUE)/length(na.omit(vVectorYNna)), 
+		vSS=sum(vSSoDS=='SS', na.rm=TRUE)/length(na.omit(vSSoDS)),
+		vDNA=sum(vDNAoRNA=='DNA',na.rm=TRUE)/length(na.omit(vDNAoRNA)),
+		vEnvelope=mean(vEnvelope=='enveloped', na.rm=TRUE), 
+		fracZoonotic=mean(IsZoonotic, na.rm=TRUE))
+virusG$vGenus <- NULL
 
 
 virus2 <- data.frame( 
@@ -429,7 +450,7 @@ virus2 <- data.frame(
 ```{r}
 
 ## Points object
-hvDat <- makePoints(intMatFull, host2, virus2)
+hvDat <- makePoints(intMatFull, host2, virusG)
 
 ```
 
@@ -464,16 +485,22 @@ linksDF <- data.frame(host=rownames(hvDati[[1]])[hvOut1[[1]]],
 
 linksDF <- linksDF[order(linksDF$suitability),]
 
-linksDF2 <- left_join(linksDF, virus[,c('vVirusNameCorrected', 'vFamily')],
-	by=c('virus'='vVirusNameCorrected'))
-
-linksCov <- filter(linksDF2, vFamily=='Coronaviridae')
+linksCov <- filter(linksDF, virus=='Betacoronavirus')
 linksCov2 <- filter(linksCov, presence==0)
-linksCov3 <- linksCov2 %>% 
-	dplyr::group_by(host) %>%
-	dplyr::summarise(meanSuit=mean(suitability))
+linksCov3 <-linksCov2[order(linksCov2$suitability, decreasing=TRUE),]
 
-linksCov3 <-linksCov3[order(linksCov3$meanSuit),]
+top50 <- linksCov3[1:50,]
+write.csv(top50, file='DallasMammalPredictions.csv')
+
+
+#bat predictions
+
+linksCovBat <- left_join(linksCov3, host, by=c('host'='hHostNameFinal'))
+linksCovBat2 <- linksCovBat[which(linksCovBat$hOrder=='CHIROPTERA'), 1:5]
+linksCovBat3 <-linksCovBat2[order(linksCovBat2$suitability, decreasing=TRUE),]
+
+top50Bat <- linksCovBat3[1:50,]
+write.csv(top50Bat, file='DallasBatPredictions.csv')
 
 
 ```
