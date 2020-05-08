@@ -19,8 +19,16 @@ output:
 
 ```{r eval=TRUE, echo=FALSE, comment="", message=FALSE}
 
+## Weird path really only useful on Colin's machine
+# dat <- read.csv('~/GitHub/cleanbats_betacov/clean data/BatCoV-assoc_compatible.csv', stringsAsFactors=FALSE)
+
+# host <- read.csv('~/GitHub/cleanbats_betacov/clean data/Han-BatTraits_compatible.csv',stringsAsFactors=FALSE)
+
+
 dat <- read.csv('BatCoV-assoc_compatible.csv', stringsAsFactors=FALSE)
 host <- read.csv('Han-BatTraits_compatible.csv',stringsAsFactors=FALSE)
+
+set.seed(05082020)
 
 ```
 
