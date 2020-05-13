@@ -493,9 +493,6 @@ hvDati <- getImpute(hvDat, m=5, useMeans=TRUE)
 
 
 
-
-
-
 3.       Filter (host_order = CHIROPTERA) > PNP with trait approach (no latent) >  include citation counts > Return a csv of bat species and probability of interaction with virus_genus = ‘Betacoronavirus’ as outcome variable > DallasBatsCitations.csv
 
 
@@ -574,14 +571,21 @@ writeLinks(dat=hvDati, model=hvOut1, fileName='DallasBatsUncorrected.csv')
 #' @param year year of prediction
 #' @param lagYears number of years which to train the model on
 #' @param distFun how to calculate dissimilarity values
+
 formatPPobject <- function(intMat,
-	distFun='bray'){
+	distFun='bray', includeCitations=FALSE){
 	require(plyr)
 	require(dplyr)
 	locSim <- rowMeans(as.matrix(vegan::vegdist(intMat)))	
 	pathSim <- rowMeans(as.matrix(vegan::vegdist(t(intMat))))
 	simMat <- locSim %*% t(pathSim)	
 	locDF <- data.frame(host = rownames(intMat), locSim)
+
+	if(includeCitations){
+		locDF <- left_join(locDF, cites,by=c('host'='name'))
+		locDF$X <- NULL
+	}
+
 	pathDF <- data.frame(pathogen = colnames(intMat), pathSim)
 	df <- expand.grid(rownames(intMat), colnames(intMat))
 	colnames(df) <- c('host', 'pathogen')
@@ -667,30 +671,18 @@ getReal2 <- function(pointsobject, cv=FALSE, folds=5, newData=NULL){
 
 
 
-
-
-
 1.       Entire dataset > PNP with latent approach (no traits) > include citation counts > Return a csv of mammal species and probability of interaction with virus_genus = ‘Betacoronavirus’ as outcome variable > DallasMammalsCitations.csv
-2.       Entire dataset > PNP with latent approach (no traits) > don’t include citation counts > Return a csv of mammal species and probability of interaction with virus_genus = ‘Betacoronavirus’ as outcome variable > DallasMammalsUncorrected.csv
-
-
-
-
-
-
 
 ```{r}
 
-test <- formatPPobject(intMatFull)
+intMatFull <- as.data.frame.matrix(table(dat$host_species, dat$virus_genus))
+test <- formatPPobject(intMatFull, includeCitations=TRUE)
 out <- getReal(test, cv=FALSE)
 
-topLinks <- cbind(test, suitability=out$predictions[,'suitability'])
-topLinks <- topLinks[which(topLinks$presence == 0),]
-topLinks <- topLinks[order(topLinks$suitability),]
-
-retNoPredictors <- topLinks[which(topLinks$pathogen == 'Betacoronavirus'), c(1,2,7)]
-
-write.csv(retNoPredictors, file='DallasDumbPredictions.csv')
+mamLinks <- cbind(test, suitability=out$predictions[,'suitability'])
+mLinksCites <- mamLinks[which(mamLinks$pathogen == 'Betacoronavirus'), c('host','pathogen', 'presence', 'suitability')]
+colnames(mLinksCites)[2] <- 'virus'
+write.csv(mLinksCites, file='DallasMammalsCitations.csv')
 
 ```
 
@@ -705,94 +697,63 @@ write.csv(retNoPredictors, file='DallasDumbPredictions.csv')
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Betacoronavirus 
-
-linksDF2 <- left_join(linksDF, virus[,c('vVirusNameCorrected', 'vFamily')],
-	by=c('virus'='vVirusNameCorrected'))
-
-linksCov <- filter(linksDF2, vFamily=='Coronaviridae')
-linksCov2 <- filter(linksCov, presence==0)
-linksCov3 <- linksCov2 %>% 
-	group_by(host) %>%
-	summarise(meanSuit=mean(suitability))
-
-linksCov3 <-linksCov3[order(linksCov3$meanSuit),]
-
-
-```
-
-
-
-
-
-
-
-
-
-
-
-Small model
+2.       Entire dataset > PNP with latent approach (no traits) > don’t include citation counts > Return a csv of mammal species and probability of interaction with virus_genus = ‘Betacoronavirus’ as outcome variable > DallasMammalsUncorrected.csv
 
 ```{r}
-# code below not edited. Models need to be trained first.
-linksDFC <- data.frame(host=rownames(hvDati[[1]])[hvOut1[[1]]],
-	virus = colnames(hvDati[[1]])[hvOut1[[2]]], 
-	presence = hvOut1[[3]]$presence,
-	suitability = hvOut1[[3]]$suitability)
 
-linksDF <- linksDF[order(linksDF$suitability),]
+test2 <- formatPPobject(intMatFull, includeCitations=FALSE)
+out2 <- getReal(test2, cv=FALSE)
 
-linksDF2 <- left_join(linksDF, virus[,c('vVirusNameCorrected', 'vFamily')],
-	by=c('virus'='vVirusNameCorrected'))
+mamLinksNoCites <- cbind(test, suitability=out2$predictions[,'suitability'])
+mLinksNoCites <- mamLinksNoCites[which(mamLinksNoCites$pathogen == 'Betacoronavirus'), c('host','pathogen', 'presence', 'suitability')]
+colnames(mLinksNoCites)[2] <- 'virus'
+write.csv(mLinksNoCites, file='DallasMammalsUncorrected.csv')
 
-linksCov <- filter(linksDF2, vFamily=='Coronaviridae')
-linksCov2 <- filter(linksCov, presence==0)
-linksCov3 <- linksCov2 %>% 
-	group_by(host) %>%
-	summarise(meanSuit=mean(suitability))
-
-sort(table(linksCov2$host))
 
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
