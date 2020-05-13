@@ -385,6 +385,14 @@ expandCol <- function(dat, colName=NULL){
 
 
 
+
+
+
+
+
+
+
+
 ```{r eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 
 
@@ -512,8 +520,9 @@ writeLinks(dat=hvDati, model=hvOut1, fileName='DallasBatsCitations.csv')
 
 ```{r eval=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
 hvDati[[2]]$cites <- NULL
+hvDati[[4]]$cites <- NULL
 hvOut2 <- getReal(hvDati[[4]], cv=FALSE)
-writeLinks(dat=hvDati, model=hvOut1, fileName='DallasBatsUncorrected.csv')
+writeLinks(dat=hvDati, model=hvOut2, fileName='DallasBatsUncorrected.csv')
 ```
 
 
