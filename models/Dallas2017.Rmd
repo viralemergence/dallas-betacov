@@ -326,6 +326,10 @@ getReal <- function(pointsobject, cv=TRUE, folds=5){
 
   if(cv==FALSE){
     fullmodel <- pp.gauss(p=p, bgrd=bg, vbose=FALSE)
+		# ignore cites in the predictions on bg data
+		if(!is.null(bg$cites)){
+			bg$cites <- mean(bg$cites)
+		}
     redpreds <- predict.pp.gauss(fullmodel, x=bg)
     ret <- data.frame(presence=pointsobject[,'presence'], suitability=redpreds)
     hosts <- pointsobject$parasite; parasites=pointsobject$host
@@ -403,12 +407,14 @@ intMatFull <- as.data.frame.matrix(table(datBats$host_species, datBats$virus_gen
 
 
 ### created features
-numParasites <- rowSums(intMatFull > 0)
+# numParasites <- rowSums(intMatFull > 0)
 numHosts <- colSums(intMatFull > 0)
+
+
 
 h <- data.frame(host_species=rownames(intMatFull))
 host$host_species <- paste(host$MSW05_Genus, host$MSW05_Species, sep=' ')
-h <- left_join(h, host, by='host_species')
+h <- left_join(host, h, by='host_species')
 h <- left_join(h, cites, by=c('host_species'='name'))
 h$X <- NULL
 h$Pan <- NULL
@@ -423,8 +429,8 @@ host2 <- data.frame(
 	expandCol(h$MSW05_Genus, 'hGenus'), 
 	expandCol(h$ForStrat.Value, 'hForStratValue'),
 	expandCol(h$IUCN , 'hIUCN '),  
-	h[,c(6:60, 62:68)], 
-	numParasites
+	h[,c(6:60, 62:68)] 
+#	numParasites
 )
 
 host2$X12.2_Terrestriality <- NULL
@@ -445,13 +451,11 @@ host2$hFamily.DELPHINIDAE <- NULL
 host2$ForStrat.Value <- NULL
 host2$IUCN <- NULL
 
-
-# drop these too.
 host2$BodyMass.value <- NULL
 host2$PET_mean_mm <- NULL
 host2$HuPopDen_5p_n.km2 <- NULL
 host2$HuPop_Den_min_n.km2 <- NULL
-
+host2$host_species <- NULL
 
 
 
@@ -606,70 +610,6 @@ formatPPobject <- function(intMat,
 }
 
 ```
-
-
-
-
-
-```{r eval=TRUE, echo=TRUE}
-#' Train pp.gauss model on data
-#'
-#' @param pointsobject input to pp.gauss function
-#' @param cv (boolean) cross-validate the model?
-#' @param folds number of cross-validation folds
-#' @param newData data to predict on (default=NULL)
-#' 
-#' @returns list object of host and parasite information, model predictions, and AUC value
-getReal2 <- function(pointsobject, cv=FALSE, folds=5, newData=NULL){
-  require(ROCR)
-  # all the data divided into presence (p) and background (bg)
-  p <- pointsobject[(pointsobject[,'presence'] >= 1), 4:ncol(pointsobject)]
-  bg <- pointsobject[,3:ncol(pointsobject)]
-  if(cv==TRUE){
-		# Take a random sample and exclude it
-		ints <- sample(1:nrow(pointsobject), nrow(pointsobject)/folds)
-		red <- pointsobject[-ints,]
-		p.red <- red[(red[,'presence'] >= 1), 4:ncol(pointsobject)]
-		bg.red <- red[, 3:ncol(pointsobject)]
-		# Train the model on a portion of the data
-		cvmodel <- pp.gauss(p=p.red, bgrd=bg.red, vbose=FALSE)
-		#... and predict on the holdout set
-		red.preds <- predict.pp.gauss(cvmodel, x=bg[ints,])
-		ret <- data.frame(presence=pointsobject[ints,'presence'], suitability=red.preds)
-		hosts <- pointsobject[ints,'host']
-		parasites <- pointsobject[ints,'pathogen']
-  }
-  if(cv==FALSE){
-    fullmodel <- pp.gauss(p=p, bgrd=bg, vbose=FALSE)
-		if(!is.null(newData)){
-			redpreds <- predict.pp.gauss(fullmodel, x=newData[,4:ncol(newData)])
-		  ret <- data.frame(presence=newData[,'presence'], suitability=redpreds)
-		  hosts <- newData$host
-			parasites <- newData$pathogen
-		}else{
-			redpreds <- predict.pp.gauss(fullmodel, x=bg)
-		  ret <- data.frame(presence=pointsobject[,'presence'], suitability=redpreds)
-		  hosts <- pointsobject$host
-			parasites <- pointsobject$pathogen
-		}
-  }
-	tss <- function(x){
-		max(unlist(performance(x, 'sens')@y.values)+ 
-			unlist(performance(x, 'spec')@y.values) - 1)
-	}
-  #auc calculation
-  pred <- prediction(predictions=ret[,2], labels=ret[,1])
-  acc <- as.numeric(performance(pred, 'auc')@y.values)
-	return(list(hostInds=hosts, parasiteInds=parasites, predictions=ret, 
-		auc=acc))
-}
-
-```
-
-
-
-
-
 
 
 
