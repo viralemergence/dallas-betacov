@@ -25,7 +25,8 @@ output:
 # host <- read.csv('~/GitHub/cleanbats_betacov/clean data/Han-BatTraits_compatible.csv',stringsAsFactors=FALSE)
 
 
-dat <- read.csv('virionette.csv', stringsAsFactors=FALSE)
+# dat <- read.csv('virionette.csv', stringsAsFactors=FALSE)
+dat <- read.delim('virionette.txt', stringsAsFactors=FALSE, sep = ",")
 host <- read.csv('Han-BatTraits.csv',stringsAsFactors=FALSE)
 cites <- read.csv('Citations.csv',stringsAsFactors=FALSE)
 
@@ -296,7 +297,6 @@ getImpute <- function(listobject, m=10, rem=FALSE, useMeans=TRUE){
 ```
 
 
-
 ```{r eval=TRUE, echo=TRUE}
 
 #' Train pp.gauss model on data
@@ -402,8 +402,13 @@ expandCol <- function(dat, colName=NULL){
 
 datBats <- filter(dat, host_order=='Chiroptera')
 
+host$host_species <- paste(host$MSW05_Genus, host$MSW05_Species, sep=' ')
+
+notHosts <- host$host_species[-which(host$host_species %in% unique(datBats$host_species))]
 ## interaction matrix
-intMatFull <- as.data.frame.matrix(table(datBats$host_species, datBats$virus_genus))
+intMatFull <- as.data.frame.matrix(table(c(datBats$host_species, notHosts), c(datBats$virus_genus, rep('dummy', length(notHosts)))))
+
+intMatFull$dummy <- NULL
 
 
 ### created features
@@ -413,7 +418,6 @@ numHosts <- colSums(intMatFull > 0)
 
 
 h <- data.frame(host_species=rownames(intMatFull))
-host$host_species <- paste(host$MSW05_Genus, host$MSW05_Species, sep=' ')
 h <- left_join(host, h, by='host_species')
 h <- left_join(h, cites, by=c('host_species'='name'))
 h$X <- NULL
@@ -485,6 +489,7 @@ writeLinks <- function(dat, model, fileName='DallasPredictions.csv'){
 	write.csv(ret, file=fileName)
 }
 ```
+
 
 
 
@@ -660,4 +665,3 @@ write.csv(mLinksNoCites, file='DallasMammalsUncorrected.csv')
 
 
 ```
-
