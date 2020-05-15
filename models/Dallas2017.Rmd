@@ -25,7 +25,8 @@ output:
 # host <- read.csv('~/GitHub/cleanbats_betacov/clean data/Han-BatTraits_compatible.csv',stringsAsFactors=FALSE)
 
 
-dat <- read.csv('virionette.csv', stringsAsFactors=FALSE)
+# dat <- read.csv('virionette.csv', stringsAsFactors=FALSE)
+dat <- read.delim('virionette.txt', stringsAsFactors=FALSE, sep = ",")
 host <- read.csv('Han-BatTraits.csv',stringsAsFactors=FALSE)
 cites <- read.csv('Citations.csv',stringsAsFactors=FALSE)
 
