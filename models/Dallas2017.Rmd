@@ -410,22 +410,23 @@ expandCol <- function(dat, colName = NULL){
 
 ```{r eval = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
 
-
 datBats <- filter(dat, host_order == 'Chiroptera')
+datBats <- datBats[-duplicated(datBats$host_species),]
+datBats <- dplyr::filter(datBats, host_species != 'Myonycteris angolensis')
 
 host$host_species <- paste(host$MSW05_Genus, host$MSW05_Species, sep = ' ')
 
 notHosts <- host$host_species[-which(host$host_species %in% unique(datBats$host_species))]
+
+
 ## interaction matrix
 intMatFull <- as.data.frame.matrix(table(c(datBats$host_species, notHosts), c(datBats$virus_genus, rep('dummy', length(notHosts)))))
 
 intMatFull$dummy <- NULL
 
-
 ### created features
 # numParasites <- rowSums(intMatFull > 0)
 numHosts <- colSums(intMatFull > 0)
-
 
 
 h <- data.frame(host_species = rownames(intMatFull))
@@ -511,6 +512,203 @@ writeLinks <- function(dat, model, fileName = 'DallasPredictions.csv'){
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### The approach we took in the Open Science article (just use dissimilarity values)
+
+
+```{r}
+#' Format the data from a list of interaction matrices to a data.frame 
+#' that can be input to the plug and play model.
+#'
+#'
+#' @param intMatList list of interaction matrices
+#' @param year year of prediction
+#' @param lagYears number of years which to train the model on
+#' @param distFun how to calculate dissimilarity values
+
+formatPPobject <- function(intMat,
+                           distFun = 'bray', includeCitations = FALSE){
+  require(plyr)
+  require(dplyr)
+  locSim <- rowMeans(as.matrix(vegan::vegdist(intMat)))	
+  pathSim <- rowMeans(as.matrix(vegan::vegdist(t(intMat))))
+  simMat <- locSim %*% t(pathSim)	
+  locDF <- data.frame(host = rownames(intMat), locSim)
+  
+  if(includeCitations){
+    locDF <- dplyr::left_join(locDF, cites, by = c('host' = 'name'))
+    locDF$X <- NULL
+  }
+  
+  pathDF <- data.frame(pathogen = colnames(intMat), pathSim)
+  df <- expand.grid(rownames(intMat), colnames(intMat))
+  colnames(df) <- c('host', 'pathogen')
+  df$presence <- as.vector(intMat > 0)+0 
+  df$similarity <- as.vector(simMat)
+  df <- left_join(df, pathDF, by = 'pathogen')
+  df <- left_join(df, locDF, by = 'host')
+  return(df)
+}
+
+```
+
+
+
+
+
+
+
+
+
+
+1.       Entire dataset > PNP with latent approach (no traits) > include citation counts > Return a csv of mammal species and probability of interaction with virus_genus = ‘Betacoronavirus’ as outcome variable > DallasMammalsCitations.csv
+
+```{r}
+
+cites <- as.data.frame(rbind(cites, c(6666, "Myonycteris angolensis", 
+	as.numeric(cites[which(cites$name == "Lissonycteris angolensis"),]$cites))))
+cites$cites <- as.numeric(cites$cites)
+
+intMatFull <- as.data.frame.matrix(table(dat$host_species, dat$virus_genus))
+test <- formatPPobject(intMatFull, includeCitations = TRUE)
+out <- getReal(test, cv = FALSE)
+
+mamLinks <- cbind(test, suitability = out$predictions[,'suitability'])
+mLinksCites <- mamLinks[which(mamLinks$pathogen  ==  'Betacoronavirus'), c('host','pathogen', 'presence', 'suitability')]
+colnames(mLinksCites)[2] <- 'virus'
+write.csv(mLinksCites, file = 'DallasMammalsCitations.csv')
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+2.       Entire dataset > PNP with latent approach (no traits) > don’t include citation counts > Return a csv of mammal species and probability of interaction with virus_genus = ‘Betacoronavirus’ as outcome variable > DallasMammalsUncorrected.csv
+
+```{r}
+
+test2 <- formatPPobject(intMatFull, includeCitations = FALSE)
+out2 <- getReal(test2, cv = FALSE)
+
+mamLinksNoCites <- cbind(test, suitability = out2$predictions[,'suitability'])
+mLinksNoCites <- mamLinksNoCites[which(mamLinksNoCites$pathogen  ==  'Betacoronavirus'), c('host','pathogen', 'presence', 'suitability')]
+colnames(mLinksNoCites)[2] <- 'virus'
+write.csv(mLinksNoCites, file = 'DallasMammalsUncorrected.csv')
+
+detach(package:plyr)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ```{r eval = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
 
 hvDati <- getImpute(hvDat, m = 5, useMeans = TRUE)
@@ -572,108 +770,3 @@ writeLinks(dat = hvDati, model = hvOut2, fileName = 'DallasBatsUncorrected.csv')
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-### The approach we took in the Open Science article (just use dissimilarity values)
-
-
-```{r}
-#' Format the data from a list of interaction matrices to a data.frame 
-#' that can be input to the plug and play model.
-#'
-#'
-#' @param intMatList list of interaction matrices
-#' @param year year of prediction
-#' @param lagYears number of years which to train the model on
-#' @param distFun how to calculate dissimilarity values
-
-formatPPobject <- function(intMat,
-                           distFun = 'bray', includeCitations = FALSE){
-  require(plyr)
-  require(dplyr)
-  locSim <- rowMeans(as.matrix(vegan::vegdist(intMat)))	
-  pathSim <- rowMeans(as.matrix(vegan::vegdist(t(intMat))))
-  simMat <- locSim %*% t(pathSim)	
-  locDF <- data.frame(host = rownames(intMat), locSim)
-  
-  if(includeCitations){
-    locDF <- left_join(locDF, cites,by = c('host' = 'name'))
-    locDF$X <- NULL
-  }
-  
-  pathDF <- data.frame(pathogen = colnames(intMat), pathSim)
-  df <- expand.grid(rownames(intMat), colnames(intMat))
-  colnames(df) <- c('host', 'pathogen')
-  df$presence <- as.vector(intMat > 0)+0 
-  df$similarity <- as.vector(simMat)
-  df <- left_join(df, pathDF, by = 'pathogen')
-  df <- left_join(df, locDF, by = 'host')
-  return(df)
-}
-
-```
-
-
-
-
-
-
-
-
-
-
-1.       Entire dataset > PNP with latent approach (no traits) > include citation counts > Return a csv of mammal species and probability of interaction with virus_genus = ‘Betacoronavirus’ as outcome variable > DallasMammalsCitations.csv
-
-```{r}
-
-intMatFull <- as.data.frame.matrix(table(dat$host_species, dat$virus_genus))
-test <- formatPPobject(intMatFull, includeCitations = TRUE)
-out <- getReal(test, cv = FALSE)
-
-mamLinks <- cbind(test, suitability = out$predictions[,'suitability'])
-mLinksCites <- mamLinks[which(mamLinks$pathogen  ==  'Betacoronavirus'), c('host','pathogen', 'presence', 'suitability')]
-colnames(mLinksCites)[2] <- 'virus'
-write.csv(mLinksCites, file = 'DallasMammalsCitations.csv')
-
-```
-
-
-
-
-
-
-
-
-
-
-
-
-2.       Entire dataset > PNP with latent approach (no traits) > don’t include citation counts > Return a csv of mammal species and probability of interaction with virus_genus = ‘Betacoronavirus’ as outcome variable > DallasMammalsUncorrected.csv
-
-```{r}
-
-test2 <- formatPPobject(intMatFull, includeCitations = FALSE)
-out2 <- getReal(test2, cv = FALSE)
-
-mamLinksNoCites <- cbind(test, suitability = out2$predictions[,'suitability'])
-mLinksNoCites <- mamLinksNoCites[which(mamLinksNoCites$pathogen  ==  'Betacoronavirus'), c('host','pathogen', 'presence', 'suitability')]
-colnames(mLinksNoCites)[2] <- 'virus'
-write.csv(mLinksNoCites, file = 'DallasMammalsUncorrected.csv')
-
-detach(package:plyr)
-
-```
