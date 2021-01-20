@@ -34,11 +34,12 @@ output:
 #host <- read.csv('Han-BatTraits.csv',stringsAsFactors=FALSE)
 #cites <- read.csv('Citations.csv',stringsAsFactors=FALSE)
 
-dat <- read.csv(paste0("C:/Users/gfalb/Documents/Script/Fresnel/", "/Github/Repos/virionette/03_interaction_data/virionette.csv"), stringsAsFactors = FALSE)
+dat <- read.csv(paste0(here::here(), "/Github/Repos/virionette/03_interaction_data/virionette.csv"), stringsAsFactors = FALSE)
 
-host <- read.csv(paste0("C:/Users/gfalb/Documents/Script/Fresnel/", "/Github/Repos/virionette/04_predictors/Han-BatTraits.csv"), stringsAsFactors = FALSE)
+host <- read.csv(paste0(here::here(), 
+                        "/Github/Repos/virionette/04_predictors/Han-BatTraits.csv"), stringsAsFactors = FALSE)
 
-cites <- read.csv(paste0("C:/Users/gfalb/Documents/Script/Fresnel/", "/Github/Repos/virionette/04_predictors/Citations.csv"), stringsAsFactors = FALSE)
+cites <- read.csv(paste0(here::here(), "/Github/Repos/virionette/04_predictors/Citations.csv"), stringsAsFactors = FALSE)
 
 # set.seed(666)
 
